@@ -12,6 +12,7 @@ from PIL import Image
 from .params import DataArguments
 from .constants import *
 from .utils_3d import get_coord3d_info, coord3d_to_flat_patches
+import re
 
 def truncate_sequence(input_ids, labels, max_length, eos_token_id):
     if input_ids.size(0) > max_length:
@@ -126,7 +127,6 @@ class SupervisedDataset(Dataset):
 
         processor = self.processor
         if "image" in sources:
-            is_dummy = False
             videos = None
             grid_key = "image_grid_thw"
             pixel_key = "pixel_values"
@@ -169,7 +169,6 @@ class SupervisedDataset(Dataset):
                     coord3d_list.append(coord3d)
 
         elif "video" in sources:
-            is_dummy = False
             is_video = True
             images=None
             grid_key = "video_grid_thw"
@@ -189,7 +188,6 @@ class SupervisedDataset(Dataset):
                 video_input, video_kwargs = get_video_info(video_file, self.video_min_pixel, self.video_max_pixel, self.data_args.fps)
                 videos.append(video_input)
         else:
-            is_dummy=True
             grid_key = None
             pixel_key = None
             images=None
@@ -266,7 +264,6 @@ class SupervisedDataset(Dataset):
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
-            is_dummy=is_dummy,
         )
 
         if pixel_key and grid_key:
@@ -299,7 +296,6 @@ class DataCollatorForSupervisedDataset(object):
         batch_pixel_video_values = []
         batch_video_thw = []
         batch_image_thw = []
-        batch_dummy_flags = []
         batch_second_per_grid_ts = []
         batch_coord3d = []
         
@@ -317,7 +313,6 @@ class DataCollatorForSupervisedDataset(object):
             
             batch_input_ids.append(example["input_ids"])
             batch_label_ids.append(example["labels"])
-            batch_dummy_flags.append(example["is_dummy"])
 
             if "second_per_grid_ts" in keys:
                 batch_second_per_grid_ts.extend(example["second_per_grid_ts"])
@@ -333,7 +328,6 @@ class DataCollatorForSupervisedDataset(object):
             'input_ids': input_ids,
             'labels': labels,
             'attention_mask': attention_mask,
-            'is_dummy': torch.tensor(batch_dummy_flags, dtype=torch.bool)
         }
 
         if len(batch_pixel_values) > 0:
@@ -359,14 +353,14 @@ class DataCollatorForSupervisedDataset(object):
     
 
 def replace_image_tokens(input_string, is_video=False):
-
     if is_video:
-        input_string = input_string.replace(LLAVA_VIDEO_TOKEN+'\n', VISION_START_TOKEN+DEFAULT_VIDEO_TOKEN+VISION_END_TOKEN)
-
+        pattern = r'\n?' + re.escape(LLAVA_VIDEO_TOKEN) + r'\n?'
+        replacement = VISION_START_TOKEN + DEFAULT_VIDEO_TOKEN + VISION_END_TOKEN
     else:
-        input_string = input_string.replace(LLAVA_IMAGE_TOKEN+'\n', VISION_START_TOKEN+DEFAULT_IMAGE_TOKEN+VISION_END_TOKEN)
+        pattern = r'\n?' + re.escape(LLAVA_IMAGE_TOKEN) + r'\n?'
+        replacement = VISION_START_TOKEN + DEFAULT_IMAGE_TOKEN + VISION_END_TOKEN
 
-    return input_string
+    return re.sub(pattern, replacement, input_string)
 
 def llava_to_openai(conversations, is_video=False):
     role_mapping = {"human": "user", "gpt": "assistant"}
