@@ -144,21 +144,27 @@ def infer(prompt_text, image_path, depth_path, cam_path):
         min_pixel = 256 * 28 * 28
         max_pixel = 1280 * 28 * 28
         coord3d = process_depth_and_camera(image_path, depth_path, cam_path, min_pixel, max_pixel)
-        coord3d_tensor = torch.tensor(coord3d, dtype=model.dtype, device=device).unsqueeze(0)
+        coord3d_tensor = torch.tensor(coord3d, dtype=model.dtype, device=device)
         
         # Process 3D coordinates through visual encoder's coord_pe modules
-        B, N, C = coord3d_tensor.shape  # B=1, N=196, C=384
-        coord3d_tensor = coord3d_tensor.reshape(B, 14, 14, C).permute(0, 3, 1, 2)  # [1, 384, 14, 14]
+        B = 1
+        N = coord3d_tensor.shape[0]  # Should be 196 (14x14)
+        C = coord3d_tensor.shape[1]  # Should be 384 (2*3*64)
+        coord3d_tensor = coord3d_tensor.reshape(B, N, C)
+        
+        # Reshape for conv2d: [B, C, H, W]
+        coord3d_tensor = coord3d_tensor.reshape(B, 14, 14, C).permute(0, 3, 1, 2)
         coord_pe = model.visual.coord_pe_conv(coord3d_tensor)  # [1, 1280, 1, 1]
         coord_pe = coord_pe.reshape(B, -1)  # [1, 1280]
         coord_pe = model.visual.coord_pe_mlp(coord_pe.repeat(1, 4))  # [1, 2048]
+        coord_pe = coord_pe.unsqueeze(1).expand(-1, N, -1)  # [1, 196, 2048]
         
         # Add the coordinate embeddings to the image embeddings
         n_image_tokens = (inputs["input_ids"] == model.config.image_token_id).sum().item()
         image_mask = (inputs["input_ids"] == model.config.image_token_id).unsqueeze(-1)
         inputs_embeds = model.model.embed_tokens(inputs["input_ids"])
         image_embeds = model.visual(inputs["images"], grid_thw=None)  # [N, 2048]
-        image_embeds = image_embeds + coord_pe  # Add coordinate embeddings
+        image_embeds = image_embeds + coord_pe[0]  # Add coordinate embeddings
         inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
         inputs["inputs_embeds"] = inputs_embeds
         del inputs["images"]  # Remove the original images since we've processed them
