@@ -8,7 +8,7 @@ from peft import PeftModel
 import os
 from qwen_vl_utils import process_vision_info
 from src.training.utils_3d import get_coord3d_info, coord3d_to_flat_patches
-from src.training.monkey_patch_forward import replace_qwen2_5_with_mixed_modality_forward
+from src.training.monkey_patch_forward import replace_qwen2_5_with_mixed_modality_forward, replace_qwen2_5_prepare_inputs_for_generation
 
 warnings.filterwarnings("ignore")
 
@@ -144,7 +144,7 @@ def infer(prompt_text, image_path, depth_path, cam_path):
         min_pixel = 256 * 28 * 28
         max_pixel = 1280 * 28 * 28
         coord3d = process_depth_and_camera(image_path, depth_path, cam_path, min_pixel, max_pixel)
-        inputs["coord3d"] = torch.tensor(coord3d).unsqueeze(0)
+        inputs["coord3d"] = torch.tensor(coord3d).to(model.dtype).to(device)
     
     output_ids = model.generate(
         **inputs,
@@ -165,6 +165,7 @@ def main(args):
     if args.disable_flash_attention:
         use_flash_attn = False
     replace_qwen2_5_with_mixed_modality_forward()
+    replace_qwen2_5_prepare_inputs_for_generation()
     model_name = get_model_name_from_path(args.model_path)
     processor, model = load_pretrained_model(
         model_path=args.model_path,
@@ -191,7 +192,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-path", type=str, default=None)
+    parser.add_argument("--model-path", type=str, default="./output/testing/")
     parser.add_argument("--model-base", type=str, default="Qwen/Qwen2.5-VL-3B-Instruct")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--load-8bit", action="store_true")
