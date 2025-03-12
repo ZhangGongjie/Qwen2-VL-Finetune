@@ -140,20 +140,36 @@ def infer(prompt_text, image_path, depth_path, cam_path):
         return_tensors="pt"
     ).to(device)
     
+    coord3d_tensor = None
     if depth_path and cam_path:
         min_pixel = 256 * 28 * 28
         max_pixel = 1280 * 28 * 28
         coord3d = process_depth_and_camera(image_path, depth_path, cam_path, min_pixel, max_pixel)
-        # inputs["coord3d"] = torch.tensor(coord3d).unsqueeze(0)
+        coord3d_tensor = torch.tensor(coord3d, dtype=model.dtype, device=device).unsqueeze(0)
     
-    output_ids = model.generate(
-        **inputs,
-        max_new_tokens=generation_args["max_new_tokens"],
-        temperature=generation_args["temperature"],
-        do_sample=(generation_args["temperature"] > 0),
-        repetition_penalty=generation_args["repetition_penalty"],
-        eos_token_id=processor.tokenizer.eos_token_id
-    )
+    # Prepare generation kwargs
+    generation_kwargs = {
+        "max_new_tokens": generation_args["max_new_tokens"],
+        "temperature": generation_args["temperature"],
+        "do_sample": (generation_args["temperature"] > 0),
+        "repetition_penalty": generation_args["repetition_penalty"],
+        "eos_token_id": processor.tokenizer.eos_token_id
+    }
+    
+    # Forward pass through the model
+    with torch.inference_mode():
+        if coord3d_tensor is not None:
+            inputs["coord3d"] = coord3d_tensor
+            outputs = model(**inputs)
+            output_ids = model.generate(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                images=inputs["images"],
+                **generation_kwargs
+            )
+        else:
+            output_ids = model.generate(**inputs, **generation_kwargs)
+    
     output_text = processor.tokenizer.decode(output_ids[0], skip_special_tokens=True)
     print("Output:", output_text)
 
