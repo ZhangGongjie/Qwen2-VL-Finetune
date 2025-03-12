@@ -144,13 +144,7 @@ def infer(prompt_text, image_path, depth_path, cam_path):
         min_pixel = 256 * 28 * 28
         max_pixel = 1280 * 28 * 28
         # Get 3D coordinates and process them into patches
-        coord3d = process_depth_and_camera(image_path, depth_path, cam_path, min_pixel, max_pixel)
-        patch_size = processor.image_processor.patch_size
-        merge_size = processor.image_processor.merge_size
-        temporal_patch_size = processor.image_processor.temporal_patch_size
-        
-        # Convert to flat patches as done in training
-        coord3d_patches = coord3d_to_flat_patches(coord3d, patch_size, merge_size, temporal_patch_size)
+        coord3d_patches = process_depth_and_camera(image_path, depth_path, cam_path, min_pixel, max_pixel)
         coord3d_tensor = torch.tensor(coord3d_patches, dtype=model.dtype, device=device)
         
         # Process through coord_pe modules
